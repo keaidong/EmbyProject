@@ -15,4 +15,4 @@ __pycache__/
 .idea/
 
 # 忽略 测试模块
-tests/tests/
+tests/
