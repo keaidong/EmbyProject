@@ -334,7 +334,7 @@ def generate_responses_weight():
             "message": str(e)
         }), 500
 
-@app_api.route('/top_playcount', methods=['POST'])
+@app_api.route('/top', methods=['POST'])
 def generate_responses_top_playcount():
     data = request.get_json()  # 获取 JSON 数据
     top_n = data.get('top_n', 20)  # 默认获取前 20 首曲目
@@ -347,7 +347,7 @@ def generate_responses_top_playcount():
         # 构造响应数据
         responses_data = {
             "Items": [track for track in playlist_generator.track_filter.track_list.get('Items') if track['Id'] in top_tracks],
-            "TotalRecordCount": len(top_tracks)
+            "TotalRecordCount": playlist_generator.track_filter.track_list.get('TotalRecordCount', 0)  # 获取所有曲目的总数量
         }
 
         return jsonify(responses_data)
