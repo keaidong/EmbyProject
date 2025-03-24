@@ -31,40 +31,6 @@ class EmbyProxyHandler:
         limit_str = query_dict.get("Limit", [None])[0]
         return int(limit_str) if limit_str else None
 
-    def handle_request(self, flow: http.HTTPFlow):
-        """
-        根据请求 URL 调用对应的处理逻辑
-        """
-        try:
-            url_path = urlparse(flow.request.pretty_url).path
-            query_params = urlparse(flow.request.pretty_url).query
-            query_dict = parse_qs(query_params)
-
-            # 处理曲目请求
-            if flow.request.pretty_url.startswith(f"{EMBY_SERVER_URL}/Users/{EMBY_USER_ID}/Items"):
-                # 检查是否包含 IncludeItemTypes=Audio且SortBy=Random
-                include_item_types = query_dict.get('IncludeItemTypes', [])
-                sort_by = query_dict.get('SortBy', [])
-                if 'Audio' in include_item_types and 'Random' in sort_by:
-                    limit = self._get_limit_from_query(query_dict)
-                    if limit in [50, 100, 500]:  # 仅处理 Limit 为 50、100 或 500 的请求
-                        logger.info(f"拦截到随机生成 {limit} 首曲目请求")
-                        self.process_items_request(flow, limit)
-
-            # 处理风格类型请求
-            elif flow.request.pretty_url.startswith(f"{EMBY_SERVER_URL}/Genres"):
-                logger.info("拦截到获取风格类型请求")
-                self.process_genres_request(flow)
-
-            # 处理封面请求（ID 替换）
-            elif url_path.startswith("/Items/") and "Images/Primary" in url_path:
-                if query_dict.get("tag", [None])[0] == "null":
-                    logger.info("拦截到获取封面请求")
-                    self.process_id_replacement(flow, url_path)
-
-        except Exception as e:
-            logger.error(f"请求处理失败: {e}, 请求 URL: {flow.request.pretty_url}", exc_info=True)
-
     def handle_emby_request(self, flow: http.HTTPFlow):
         """
         根据请求 URL 调用对应的处理逻辑
@@ -83,9 +49,12 @@ class EmbyProxyHandler:
                 # 1. 曲目类
                 if 'Audio' in include_item_types :
                     # 1. 每日推荐
-                    if 'Random' in sort_by and limit in [50, 100, 500]:  # 仅处理 Limit 为 50、100 或 500 的请求
+                    if 'Random' in sort_by and limit in [50, 100]:  # Limit 为 50、100调用平均分发接口
                         logger.info(f"拦截到每日推荐 {limit} 首请求")
                         self.process_items_request_average(flow, limit)
+                    if 'Random' in sort_by and limit == 500:  # Limit 为500调用权重分发接口
+                        logger.info(f"拦截到每日推荐 {limit} 首请求")
+                        self.process_items_request_weight(flow, limit)                        
                     # 2. 最常播放
                     if 'PlayCount' in sort_by and limit == 20:  # 仅处理 Limit 为 20 的请求
                         logger.info(f"拦截到最常播放 {limit} 首请求")
@@ -113,41 +82,6 @@ class EmbyProxyHandler:
 
         except Exception as e:
             logger.error(f"请求处理失败: {e}, 请求 URL: {flow.request.pretty_url}", exc_info=True)
-
-    def process_items_request(self, flow: http.HTTPFlow, limit: int):
-        """
-        处理曲目数据请求，并返回自定义的曲目列表
-        """
-        try:
-            # 调用 /average 接口获取曲目数据
-            url = f"http://192.168.2.40:5555/average"
-
-            # 调用 /weight 接口获取曲目数据
-            # url = f"http://192.168.2.40:5555/weight"
-
-            # 将数据转换为 JSON 格式
-            data = {'random_count': limit}
-
-            # 设置请求头为 application/json
-            headers = {'Content-Type': 'application/json'}
-
-            # 发送 POST 请求
-            response = requests.post(url, json=data, headers=headers)
-
-            if response.status_code == 200:
-                track_data = response.json()  # 返回曲目数据
-                if not track_data or 'Items' not in track_data or len(track_data['Items']) == 0:
-                    logger.warning("API返回的曲目数据无效或为空")
-                    return
-                # 设置自定义响应
-                flow.response = self.create_response(track_data)
-                logger.info(f"自定义随机生成 {limit} 首曲目成功")
-            else:
-                logger.error(f"API 请求失败，状态码: {response.status_code}")
-                return None
-        except Exception as e:
-            logger.error(f"调用 API 时发生错误: {e}", exc_info=True)
-            return None
 
     def process_items_request_average(self, flow: http.HTTPFlow, limit: int):
         """
@@ -180,6 +114,38 @@ class EmbyProxyHandler:
         except Exception as e:
             logger.error(f"调用 API 时发生错误: {e}", exc_info=True)
             return None            
+
+    def process_items_request_weight(self, flow: http.HTTPFlow, limit: int):
+        """
+        处理曲目数据请求，并返回自定义的曲目列表
+        """
+        try:
+            # 调用 /average 接口获取曲目数据
+            url = f"http://192.168.2.40:5555/weight"
+
+            # 将数据转换为 JSON 格式
+            data = {'random_count': limit}
+
+            # 设置请求头为 application/json
+            headers = {'Content-Type': 'application/json'}
+
+            # 发送 POST 请求
+            response = requests.post(url, json=data, headers=headers)
+
+            if response.status_code == 200:
+                track_data = response.json()  # 返回曲目数据
+                if not track_data or 'Items' not in track_data or len(track_data['Items']) == 0:
+                    logger.warning("API返回的曲目数据无效或为空")
+                    return
+                # 设置自定义响应
+                flow.response = self.create_response(track_data)
+                logger.info(f"自定义随机生成 {limit} 首曲目成功")
+            else:
+                logger.error(f"API 请求失败，状态码: {response.status_code}")
+                return None
+        except Exception as e:
+            logger.error(f"调用 API 时发生错误: {e}", exc_info=True)
+            return None           
 
     def process_items_request_top(self, flow: http.HTTPFlow, limit: int):
         """
