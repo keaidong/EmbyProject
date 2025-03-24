@@ -6,6 +6,9 @@ import pickle
 from flask import Flask, request, jsonify
 from config.log_config import get_logger
 from config.settings import REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_CACHE_DURATION_TRACKS
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+import atexit
 
 # 创建独立的日志记录器
 logger = get_logger("app.api", "api.log")
@@ -357,6 +360,34 @@ def generate_responses_top_playcount():
             "status": "error",
             "message": str(e)
         }), 500
+
+def update_cache():
+    """
+    定时更新 Emby 缓存
+    """
+    try:
+        logger.info("开始定时更新 Emby 缓存")
+        track_filter = TrackFilter()
+        track_filter.filter_tracks()  # 调用现有的缓存更新逻辑
+        logger.info("Emby 缓存更新完成")
+    except Exception as e:
+        logger.error(f"定时更新缓存时发生错误：{e}")
+
+# 初始化定时任务
+scheduler = BackgroundScheduler()
+scheduler.start()
+
+# 每隔 12 小时执行一次更新缓存任务
+scheduler.add_job(
+    func=update_cache,
+    trigger=IntervalTrigger(hours=12),
+    id='update_cache_job',
+    name='定时更新 Emby 缓存',
+    replace_existing=True
+)
+
+# 确保在程序退出时关闭定时任务
+atexit.register(lambda: scheduler.shutdown())
 
 if __name__ == '__main__':
     app_api.run(host='0.0.0.0', port=5555, debug=True)
