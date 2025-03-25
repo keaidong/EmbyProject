@@ -105,9 +105,9 @@ class TrackFilter:
 
         return self.play_process_results
 
-    def get_top_tracks_by_playcount(self, top_n=20):
+    def get_top_tracks_by_playcount(self, top_count=20):
         """
-        根据 PlayCount 降序排列曲目，并获取前 top_n 首曲目
+        根据 PlayCount 降序排列曲目，并获取前 top_count 首曲目
         """
         try:
             # 确保 track_list 和 track_info 已加载
@@ -127,9 +127,9 @@ class TrackFilter:
             # 按 PlayCount 降序排列
             sorted_tracks = sorted(tracks_with_playcount, key=lambda x: x["PlayCount"], reverse=True)
 
-            # 获取前 top_n 首曲目
-            top_tracks = sorted_tracks[:top_n]
-            logger.info(f"获取到的前 {top_n} 首曲目: {top_tracks}")
+            # 获取前 top_count 首曲目
+            top_tracks = sorted_tracks[:top_count]
+            logger.info(f"获取到的前 {top_count} 首曲目: {top_tracks}")
             return top_tracks
 
         except Exception as e:
@@ -261,16 +261,11 @@ class GenerateEmbyPlaylist:
             distributed_tracks = self.track_distributor.average_distribute(random_count)
         elif distribution_type == "weight":
             distributed_tracks = self.track_distributor.weight_distribute(random_count)
+        elif distribution_type == "top":
+            distributed_tracks = self.track_filter.get_top_tracks_by_playcount(random_count)
         else:
             distributed_tracks = []
         return distributed_tracks
-    
-    def generate_top_playcount_playlist(self, top_n=20):
-        """
-        生成基于 PlayCount 排序的播放列表
-        """
-        top_tracks = self.track_filter.get_top_tracks_by_playcount(top_n=top_n)
-        return [track["Id"] for track in top_tracks]
 
 class GenerateResponses:
     def __init__(self, random_count, distribution_type):
@@ -340,20 +335,25 @@ def generate_responses_weight():
 @app_api.route('/top', methods=['POST'])
 def generate_responses_top_playcount():
     data = request.get_json()  # 获取 JSON 数据
-    top_n = data.get('top_n', 20)  # 默认获取前 20 首曲目
+    top_count = data.get('top_count', 20)  # 默认获取前 20 首曲目
 
-    logger.info(f"API 请求: 获取前 {top_n} 首曲目 (按 PlayCount 排序)")
+    logger.info(f"API 请求: 获取前 {top_count} 首曲目 (按 PlayCount 排序)")
     try:
         playlist_generator = GenerateEmbyPlaylist()
-        top_tracks = playlist_generator.generate_top_playcount_playlist(top_n=top_n)
-
-        # 构造响应数据
-        responses_data = {
-            "Items": [track for track in playlist_generator.track_filter.track_list.get('Items') if track['Id'] in top_tracks],
-            "TotalRecordCount": playlist_generator.track_filter.track_list.get('TotalRecordCount', 0)  # 获取所有曲目的总数量
-        }
-
-        return jsonify(responses_data)
+        top_tracks = playlist_generator.generate_playlist(top_count, distribution_type="top")
+        top_tracks_ids = [track["Id"] for track in top_tracks]
+        if len(top_tracks_ids) == top_count:
+            # 构造响应数据
+            responses_data = {
+                "Items": [track for track in playlist_generator.track_filter.track_list.get('Items') if track['Id'] in top_tracks_ids],
+                "TotalRecordCount": playlist_generator.track_filter.track_list.get('TotalRecordCount', 0)  # 获取所有曲目的总数量
+            }
+            return jsonify(responses_data)
+        else:
+            return jsonify({
+                "status": "error",
+                "message": f"生成播放列表数量{len(top_tracks_ids)}与请求数量{top_count}不一致"
+            }), 500
     except Exception as e:
         logger.error(f"生成播放列表失败: {e}")
         return jsonify({
