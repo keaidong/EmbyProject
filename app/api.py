@@ -129,7 +129,7 @@ class TrackFilter:
 
             # 获取前 top_count 首曲目
             top_tracks = sorted_tracks[:top_count]
-            logger.info(f"获取到的前 {top_count} 首曲目: {top_tracks}")
+            logger.info(f"获取到的前 {top_count} 首曲目")
             return top_tracks
 
         except Exception as e:

@@ -84,6 +84,20 @@ class EmbyProxyHandler:
                 if query_dict.get("tag", [None])[0] == "null":
                     logger.info("拦截到 ◩ 封面请求◪")
                     self.process_id_replacement(flow, url_path)
+            
+            elif flow.request.method == "POST" and url_path.startswith("/Sessions/Playing"):
+                logger.info("拦截到 /Sessions/Playing 请求")
+                try:
+                    # 伪造成功响应（关键步骤）
+                    # 返回 200 但不含有效播放数据，使 Emby 忽略统计
+                    flow.response = http.Response.make(
+                        200,
+                        b"{}",  # 返回空的JSON
+                        {"Content-Type": "application/json"}
+                    )
+                    #logger.info("已阻止播放次数更新")
+                except Exception as e:
+                    logger.error(f"处理失败: {e}")
 
         except ValueError as e:
             logger.error(f"值错误: {e}, 请求 URL: {flow.request.pretty_url}", exc_info=True)

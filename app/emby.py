@@ -1,7 +1,7 @@
 import requests
 import json
 import psycopg2
-from config.settings import EMBY_SERVER_URL, DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT
+from config.settings import EMBY_SERVER_URL, DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, EMBY_API_KEY
 
 class Emby:
     def __init__(self, host=EMBY_SERVER_URL):
@@ -275,6 +275,26 @@ class Emby:
         else:
             print(f"Failed to Get Session. Status code: {response.status_code}")
 
+    def delete_item_unplayed(self,item_id):
+        UserId, AccessToken = self.get_UserId_AccessToken()
+
+        # 请求头，包含 API 密钥
+        headers = {
+            'accept': 'application/json',
+            'X-Emby-Token': AccessToken,
+        }
+
+        params = {
+            'api_key': EMBY_API_KEY,
+        }
+
+        response = requests.delete(f'{self.host}/emby/Users/{UserId}/PlayedItems/{item_id}', headers=headers, params=params)
+
+        if response.status_code == 200:
+            unplayed_data = response.json()
+            return unplayed_data
+        else:
+            print(f"Failed to Get Unplayed. Status code: {response.status_code}")
 
 """
 if __name__ == "__main__":
