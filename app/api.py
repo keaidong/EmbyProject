@@ -73,6 +73,9 @@ class TrackFilter:
                 if track.get('UserData', {}).get('IsFavorite', False):
                     continue
 
+                if track.get('UserData', {}).get('Played', False):
+                    continue
+                
                 play_process_results = self._get_play_process()
                 play_process_results_ids_1 = [result["id"] for result in play_process_results]
                 play_process_results_ids_2 = [result["id"] for result in play_process_results if result["play_process"] < '50%']
