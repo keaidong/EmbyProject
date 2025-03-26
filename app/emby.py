@@ -35,7 +35,7 @@ class Emby:
         except requests.exceptions.RequestException as e:
             logger.error(f"登录失败: {e}")
             return None
-        
+
     def _get_headers(self):
         """构造通用请求头"""
         if not self.AccessToken:
@@ -99,16 +99,6 @@ class Emby:
             logger.error(f"获取歌曲信息失败: {e}")
             return None
 
-    def Set_Favorite(self, item_id):
-        """收藏歌曲/专辑/歌手"""
-        url = f"{self.host}/Users/{self._get_user_id()}/FavoriteItems/{item_id}"
-        try:
-            response = requests.post(url, headers=self._get_headers(), timeout=10)
-            response.raise_for_status()
-            logger.info(f"成功收藏项目: {item_id}")
-        except requests.exceptions.RequestException as e:
-            logger.error(f"收藏失败: {e}")
-
     def make_item_played(self, item_id):
         """标记歌曲为已播放"""
         url = f"{self.host}/emby/Users/{self._get_user_id()}/PlayedItems/{item_id}"
@@ -134,182 +124,17 @@ class Emby:
             logger.error(f"标记歌曲为未播放失败: {e}")
             return None
 
-    def Get_Views(self):
-        """获取视图列表并返回歌单视图 ID"""
-        UserId, AccessToken = self.get_UserId_AccessToken()
-        url = f"{self.host}/Users/{UserId}/Views"
-        params = {"X-Emby-Token": AccessToken}
-        response = requests.get(url, params=params)
-
-        if response.status_code == 200:
-            views_data = response.json()
-            return views_data
-        else:
-            print(f"获取视图列表失败: {response.status_code} - {response.text}")
-            return None
-
-    def Get_Playlists(self):
-        """获取歌单列表"""
-        views_data = self.Get_Views()
-        views_ids = [item['Id'] for item in views_data.get('Items',[]) if item['CollectionType'] == 'playlists']
-        views_id = views_ids[0]
-
-        UserId, AccessToken = self.get_UserId_AccessToken()
-        url = f"{self.host}/Users/{UserId}/Items"
-        params = {
-            "SortBy": "SortName",
-            "SortOrder": "Ascending",
-            "ParentId": views_id,
-            "Recursive": "true",
-            "IncludeItemTypes": "Playlist",
-            "Fields": "SortName,CanDelete,PrimaryImageAspectRatio",
-            "EnableImageTypes": "Backdrop",
-            "StartIndex": "0",
-            "X-Emby-Token": AccessToken
-        }
-        response = requests.get(url, params=params)
-
-        if response.status_code == 200:
-            return response.json().get("Items", [])
-        else:
-            print(f"获取歌单失败: {response.status_code} - {response.text}")
-            return []
-
-    def Create_Playlists(self, playlist_name):
-        """创建歌单"""
-        playlists = self.Get_Playlists()
-        if any(pl.get("Name") == playlist_name for pl in playlists):
-            print(f"歌单 '{playlist_name}' 已存在")
-            return
-
-        UserId, AccessToken = self.get_UserId_AccessToken()
-        url = f"{self.host}/Playlists"
-        headers = {"Content-Type": "application/json", "X-Emby-Token": AccessToken}
-        data = {"Name": playlist_name, "Ids": "", "MediaType": "Audio"}
-        response = requests.post(url, headers=headers, json=data)
-
-        if response.status_code == 200:
-            playlist_id = response.json().get("Id")
-            print(f"成功创建歌单: {playlist_name} (ID: {playlist_id})")
-            return playlist_id
-        else:
-            print(f"创建歌单失败: {response.status_code} - {response.text}")
-
-    def Get_Tracks_Of_Playlist(self, playlist_id):
-        """获取歌单中的歌曲"""
-        UserId, AccessToken = self.get_UserId_AccessToken()
-        url = f"{self.host}/Users/{UserId}/Items"
-        params = {
-            "SortBy": "SortName",
-            "SortOrder": "Ascending",
-            "Fields": "PrimaryImageAspectRatio,MediaSources,AudioInfo",
-            "ImageTypeLimit": "1",
-            "ParentId": playlist_id,
-            "X-Emby-Token": AccessToken
-        }
-        response = requests.get(url, params=params)
-
-        if response.status_code == 200:
-            return response.json().get("Items", [])
-        else:
-            print(f"获取歌单歌曲失败: {response.status_code} - {response.text}")
-            return []
-
-    def Add_Tracks_To_Playlist(self, playlist_id, track_ids):
-        """
-        添加歌曲到指定歌单
-        :param playlist_id: 歌单 ID
-        :param track_ids: 以逗号分隔的歌曲 ID 字符串
-        """
-        track_ids_list = track_ids.split(",")
-        # 获取当前歌单中的歌曲
-        tracks_of_playlist = self.Get_Tracks_Of_Playlist(playlist_id)
-        existing_track_ids = {item["Id"] for item in tracks_of_playlist}
-
-        # 过滤出需要添加的歌曲 ID
-        track_ids_to_add = [track_id for track_id in track_ids_list if track_id not in existing_track_ids]
-
-        if not track_ids_to_add:
-            print("所有歌曲已在歌单中，无需添加。")
-            return
-
-        UserId, AccessToken = self.get_UserId_AccessToken()
-        url = self.host + "/Playlists/" + playlist_id + "/Items"
-        headers = {
-            "Content-Type": "application/json",
-            "X-Emby-Token": AccessToken
-        }
-
-        data = {
-            "Ids": ",".join(track_ids_to_add),  # 将要添加的歌曲 ID 拼接为逗号分隔字符串
-            "UserId": UserId,
-        }
-
-        response = requests.post(url, headers=headers, json=data)
-
-        if response.status_code == 200:
-            return
-        else:
-            print(f"添加歌曲到歌单失败，HTTP 状态码: {response.status_code}，错误信息: {response.text}")
-
-    def Del_Tracks_From_Playlist(self, playlist_id):
-        """
-        从指定歌单中移除所有歌曲
-        :param playlist_id: 歌单 ID
-        """
-        # 获取当前歌单中的歌曲
-        tracks_of_playlist = self.Get_Tracks_Of_Playlist(playlist_id)
-        if not tracks_of_playlist:
-            print("歌单中没有歌曲，无需移除。")
-            return False
-
-        # 提取所有歌曲 ID
-        track_ids_to_remove = [item["PlaylistItemId"] for item in tracks_of_playlist]
-
-        # 构造 API 请求
-        UserId, AccessToken = self.get_UserId_AccessToken()
-        url = f"{self.host}/Playlists/{playlist_id}/Items"
-        headers = {
-            "X-Emby-Token": AccessToken
-        }
-        params = {
-            "entryIds": ",".join(track_ids_to_remove)  # 拼接歌曲 ID 列表为逗号分隔字符串
-        }
-
-        # 发起 DELETE 请求
-        response = requests.delete(url, headers=headers, params=params)
-
-        if response.status_code == 204:
-            return True
-        else:
-            print(f"从歌单中移除歌曲失败，HTTP 状态码: {response.status_code}，错误信息: {response.text}")
-            return False
-
     def Sessions(self):
-
-        UserId, AccessToken = self.get_UserId_AccessToken()
-
-        # 请求头，包含 API 密钥
-        headers = {
-            'accept': 'application/json',
-            'X-Emby-Token': AccessToken,
-        }
-
-        params = {
-            'DeviceId': 'sNmpJjgsnsL9O79Cv5iA2IwM',
-        }
-
-        response = requests.get(f'{self.host}/emby/Sessions', headers=headers, params=params)
-
-        if response.status_code == 200:
+        """获取会话信息"""
+        url = f"{self.host}/emby/Sessions"
+        headers = self._get_headers()
+        params = {"DeviceId": "sNmpJjgsnsL9O79Cv5iA2IwM"}
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=10)
+            response.raise_for_status()
             play_state_data = response.json()
+            # logger.info("成功获取会话信息")
             return play_state_data
-        else:
-            print(f"Failed to Get Session. Status code: {response.status_code}")
-
-"""
-if __name__ == "__main__":
-    client_emby = Emby()
-    client_emby.login()
-    client_emby.Session()
-"""
+        except requests.exceptions.RequestException as e:
+            logger.error(f"获取会话信息失败: {e}")
+            return None
