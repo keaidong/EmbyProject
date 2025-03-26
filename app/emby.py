@@ -1,13 +1,17 @@
 import requests
 import json
 import psycopg2
-from config.settings import EMBY_SERVER_URL, DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, EMBY_API_KEY
 from datetime import datetime
+from config.settings import EMBY_SERVER_URL, DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, EMBY_API_KEY
+from config.log_config import get_logger
+
+logger = get_logger("app.emby", "emby.log")
+
 
 class Emby:
     def __init__(self, host=EMBY_SERVER_URL):
         self.host = host
-        self.login_url = f"{host}/emby/Users/authenticatebyname"
+        self.login_url = f"{host}/emby/Users/AuthenticateByName"
         self.UserId = None
         self.AccessToken = None
 
@@ -21,36 +25,49 @@ class Emby:
             "X-Emby-Language": "zh-cn"
         }
         data = {"Username": username, "Pw": password}
-        response = requests.post(self.login_url, headers=headers, json=data)
-
-        if response.status_code == 200:
+        try:
+            response = requests.post(self.login_url, headers=headers, json=data, timeout=10)
+            response.raise_for_status()
             self.UserId = response.json().get("User", {}).get("Id")
             self.AccessToken = response.json().get("AccessToken")
-            return self  # 返回当前对象，表示登录成功
-        else:
-            print(f"登录失败: {response.status_code} - {response.text}")
-            return None  # 登录失败时返回 None
+            logger.info("登录成功")
+            return self
+        except requests.exceptions.RequestException as e:
+            logger.error(f"登录失败: {e}")
+            return None
+        
+    def _get_headers(self):
+        """构造通用请求头"""
+        if not self.AccessToken:
+            raise ValueError("未登录，请先调用 login() 方法")
+        return {"X-Emby-Token": self.AccessToken}
 
-    def get_UserId_AccessToken(self):
-        """获取登录成功后的 UserId 和 AccessToken"""
-        if self.UserId and self.AccessToken:
-            return self.UserId, self.AccessToken
-        raise ValueError("未登录，请先调用 login() 方法")
+    def _get_user_id(self):
+        """获取 UserId"""
+        if not self.UserId:
+            raise ValueError("未登录，请先调用 login() 方法")
+        return self.UserId
 
     def Connect_To_EmbyDB(self):
-        return psycopg2.connect(
-            dbname=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            host=DB_HOST,
-            port=DB_PORT,
-            options="-c client_encoding=UTF8"
-        )
+        """连接 Emby 数据库"""
+        try:
+            conn = psycopg2.connect(
+                dbname=DB_NAME,
+                user=DB_USER,
+                password=DB_PASSWORD,
+                host=DB_HOST,
+                port=DB_PORT,
+                options="-c client_encoding=UTF8"
+            )
+            logger.info("成功连接到数据库")
+            return conn
+        except psycopg2.Error as e:
+            logger.error(f"数据库连接失败: {e}")
+            raise
 
     def Get_Tracks(self):
         """获取所有歌曲列表"""
-        UserId, AccessToken = self.get_UserId_AccessToken()
-        url = f"{self.host}/Users/{UserId}/Items"
+        url = f"{self.host}/Users/{self._get_user_id()}/Items"
         params = {
             "SortBy": "Random",
             "SortOrder": "Ascending",
@@ -60,47 +77,63 @@ class Emby:
             "ImageTypeLimit": "1",
             "EnableImageTypes": "Backdrop",
             "StartIndex": "0",
-            #"Limit":"1",
-            "X-Emby-Token": AccessToken
         }
-        response = requests.get(url, params=params)
-        if response.status_code == 200:
+        try:
+            response = requests.get(url, headers=self._get_headers(), params=params, timeout=10)
+            response.raise_for_status()
             tracks_data = response.json()
-            # print(f"获取歌曲成功，共 {tracks_data['TotalRecordCount']} 首")
+            logger.info(f"获取歌曲成功，共 {tracks_data.get('TotalRecordCount', 0)} 首")
             return tracks_data
-        else:
-            print(f"获取歌曲失败: {response.status_code} - {response.text}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"获取歌曲失败: {e}")
             return []
 
-    def Get_Track_info(self, id):
-        UserId, AccessToken = self.get_UserId_AccessToken()
-        url = f"{self.host}/Users/{UserId}/Items/{id}"
-        params = {
-            "X-Emby-Token": AccessToken
-        }
-        response = requests.get(url, params=params)
-        if response.status_code == 200:
-            tracks_info = response.json()
-            return tracks_info
-        else:
-            print(f"获取歌曲信息失败: {response.status_code} - {response.text}")
-            return []
+    def Get_Track_info(self, track_id):
+        """获取单个歌曲信息"""
+        url = f"{self.host}/Users/{self._get_user_id()}/Items/{track_id}"
+        try:
+            response = requests.get(url, headers=self._get_headers(), timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"获取歌曲信息失败: {e}")
+            return None
 
     def Set_Favorite(self, item_id):
         """收藏歌曲/专辑/歌手"""
-        UserId, AccessToken = self.get_UserId_AccessToken()
-        url = f"{self.host}/Users/{UserId}/FavoriteItems/{item_id}"
-        headers = {"X-Emby-Token": AccessToken}
-        response = requests.post(url, headers=headers)
+        url = f"{self.host}/Users/{self._get_user_id()}/FavoriteItems/{item_id}"
+        try:
+            response = requests.post(url, headers=self._get_headers(), timeout=10)
+            response.raise_for_status()
+            logger.info(f"成功收藏项目: {item_id}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"收藏失败: {e}")
 
-        if response.status_code == 200:
-            response_data = response.json()
-            if response_data.get("IsFavorite"):
-                print(f"成功收藏项目: {item_id}")
-        else:
-            print(f"收藏失败: {response.status_code} - {response.text}")
+    def make_item_played(self, item_id):
+        """标记歌曲为已播放"""
+        url = f"{self.host}/emby/Users/{self._get_user_id()}/PlayedItems/{item_id}"
+        params = {"DatePlayed": datetime.now().strftime("%Y%m%d%H%M%S")}
+        try:
+            response = requests.post(url, headers=self._get_headers(), params=params, timeout=10)
+            response.raise_for_status()
+            logger.info(f"成功标记歌曲 {item_id} 为已播放")
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"标记歌曲为已播放失败: {e}")
+            return None
 
-    # Views 获取视图列表 CollectionType: music / playlists
+    def make_item_unplayed(self, item_id):
+        """标记歌曲为未播放"""
+        url = f"{self.host}/emby/Users/{self._get_user_id()}/PlayedItems/{item_id}"
+        try:
+            response = requests.delete(url, headers=self._get_headers(), timeout=10)
+            response.raise_for_status()
+            logger.info(f"成功标记歌曲 {item_id} 为未播放")
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"标记歌曲为未播放失败: {e}")
+            return None
+
     def Get_Views(self):
         """获取视图列表并返回歌单视图 ID"""
         UserId, AccessToken = self.get_UserId_AccessToken()
@@ -182,7 +215,6 @@ class Emby:
             print(f"获取歌单歌曲失败: {response.status_code} - {response.text}")
             return []
 
-    # Items 添加歌曲到歌单
     def Add_Tracks_To_Playlist(self, playlist_id, track_ids):
         """
         添加歌曲到指定歌单
@@ -220,7 +252,6 @@ class Emby:
         else:
             print(f"添加歌曲到歌单失败，HTTP 状态码: {response.status_code}，错误信息: {response.text}")
 
-    # Items 从歌单中移除歌曲
     def Del_Tracks_From_Playlist(self, playlist_id):
         """
         从指定歌单中移除所有歌曲
@@ -275,50 +306,6 @@ class Emby:
             return play_state_data
         else:
             print(f"Failed to Get Session. Status code: {response.status_code}")
-
-    def make_item_unplayed(self,item_id):
-        UserId, AccessToken = self.get_UserId_AccessToken()
-
-        # 请求头，包含 API 密钥
-        headers = {
-            'accept': 'application/json',
-            'X-Emby-Token': AccessToken,
-        }
-
-        params = {
-            'api_key': EMBY_API_KEY,
-        }
-
-        response = requests.delete(f'{self.host}/emby/Users/{UserId}/PlayedItems/{item_id}', headers=headers, params=params)
-
-        if response.status_code == 200:
-            unplayed_data = response.json()
-            return unplayed_data
-        else:
-            print(f"Failed to Get Unplayed. Status code: {response.status_code}")
-
-    def make_item_played(self,item_id):
-
-        UserId, AccessToken = self.get_UserId_AccessToken()
-
-        # 请求头，包含 API 密钥
-        headers = {
-            'accept': 'application/json',
-            'content-type': 'application/x-www-form-urlencoded',
-        }
-
-        params = {
-            'DatePlayed': datetime.now().strftime("%Y%m%d%H%M%S"),
-            'api_key': EMBY_API_KEY,
-        }
-
-        response = requests.post(f'{self.host}/emby/Users/{UserId}/PlayedItems/{item_id}', headers=headers, params=params)
-
-        if response.status_code == 200:
-            played_data = response.json()
-            return played_data
-        else:
-            print(f"Failed to Make Item played. Status code: {response.status_code}")
 
 """
 if __name__ == "__main__":
