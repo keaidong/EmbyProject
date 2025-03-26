@@ -26,7 +26,16 @@ if not EMBY_SERVER_URL or not EMBY_USER_ID or not EMBY_API_KEY:
 
 class EmbyProxyHandler:
     def __init__(self):
+
+        self.client_emby = emby.Emby().login()
+        if not self.client_emby:
+            logger.error("登录失败，程序退出")
+            return
+        
         self.db_conn = emby.Emby().Connect_To_EmbyDB()
+        if not self.db_conn:
+            logger.error("连接数据库失败，程序退出")
+            return
 
     def _get_limit_from_query(self, query_dict):
         """
@@ -57,22 +66,22 @@ class EmbyProxyHandler:
                 # 曲目类请求
                 if 'Audio' in include_item_types:
                     if 'Random' in sort_by and limit in [50, 100]:
-                        logger.info(f"拦截到【每日推荐-平均】请求，Limit: {limit}")
+                        logger.info(f"拦截到【每日推荐】请求，Limit: {limit}")
                         self.process_items_request_average(flow, limit)
                     elif 'Random' in sort_by and limit == 500:
-                        logger.info(f"拦截到【每日推荐-权重】请求，Limit: {limit}")
+                        logger.info(f"拦截到【每日推荐】请求，Limit: {limit}")
                         self.process_items_request_weight(flow, limit)
                     elif 'PlayCount' in sort_by and limit == 20:
                         logger.info(f"拦截到【最常播放】请求，Limit: {limit}")
                         self.process_items_request_top(flow, limit)
                     elif 'DatePlayed' in sort_by and limit == 20:
+                        logger.info(f"拦截到【最近播放】请求，Limit: {limit}")
                         flow.request.url = flow.request.url.replace("SortOrder=Descending", "SortOrder=Ascending")
-                        logger.info(f"修改请求【最近播放】 为 【最远播放】")
+                        logger.info(f"拦截到【最近播放】请求，Limit: {limit} >>> 按播放日期升序")
 
                 # 2. 专辑类
                 if 'MusicAlbum' in include_item_types:
                     pass
-
 
             # 处理风格类型请求
             elif flow.request.pretty_url.startswith(f"{EMBY_SERVER_URL}/Genres"):
@@ -85,17 +94,37 @@ class EmbyProxyHandler:
                     logger.info("拦截到 ◩ 封面请求◪")
                     self.process_id_replacement(flow, url_path)
             
-            elif flow.request.method == "POST" and url_path.startswith("/Sessions/Playing"):
+            elif flow.request.method == "POST" and url_path.endswith("/Sessions/Playing"):
                 logger.info("拦截到 /Sessions/Playing 请求")
                 try:
-                    # 伪造成功响应（关键步骤）
-                    # 返回 200 但不含有效播放数据，使 Emby 忽略统计
+                    # 获取请求数据
+                    request_data = json.loads(flow.request.text) if flow.request.text else {}
+                    item_id = request_data.get("ItemId")
+                    # 伪造成功响应，返回 200 但不含有效播放数据，使 Emby 忽略统计
                     flow.response = http.Response.make(
                         200,
                         b"{}",  # 返回空的JSON
                         {"Content-Type": "application/json"}
                     )
-                    #logger.info("已阻止播放次数更新")
+                    logger.info(f"拦截到 /Sessions/Playing 请求 >>> 已阻止曲目 {item_id} 标记为已播放")
+                except Exception as e:
+                    logger.error(f"处理失败: {e}")
+
+            elif flow.request.method == "POST" and url_path.endswith("/Sessions/Playing/Stopped"):
+                logger.info("拦截到 /Sessions/Playing/Stopped 请求")
+                try:
+                    # 获取请求数据
+                    request_data = json.loads(flow.request.text) if flow.request.text else {}
+                    item_id = request_data.get("ItemId")
+
+                    if item_id:
+                        self.client_emby.make_item_played(item_id)
+                        logger.info(f"拦截到 /Sessions/Playing/Stopped 请求 >>> 曲目 {item_id} 标记为已播放且播放次数+1")
+                    else:
+                        logger.warning("请求中未找到 ItemId")
+
+                except json.JSONDecodeError as e:
+                    logger.error(f"解析请求数据失败: {e}")
                 except Exception as e:
                     logger.error(f"处理失败: {e}")
 
@@ -115,20 +144,20 @@ class EmbyProxyHandler:
                     logger.warning(f"API返回的曲目数据无效或为空: 【{log_message}】")
                     return
                 flow.response = self.create_response(track_data)
-                logger.info(f"自定义【{log_message}】成功")
+                logger.info(f"{log_message}")
             else:
                 logger.error(f"API 请求失败，状态码: {response.status_code}, {log_message}")
         except Exception as e:
             logger.error(f"调用 API 时发生错误: {e}, {log_message}", exc_info=True)
 
     def process_items_request_average(self, flow: http.HTTPFlow, limit: int):
-        self.process_items_request(flow, "http://192.168.2.40:5555/average", {'random_count': limit}, "每日推荐-平均")
+        self.process_items_request(flow, "http://192.168.2.40:5555/average", {'random_count': limit}, f"拦截到【每日推荐】请求，Limit: {limit} >>> 按曲目风格平均分配")
 
     def process_items_request_weight(self, flow: http.HTTPFlow, limit: int):
-        self.process_items_request(flow, "http://192.168.2.40:5555/weight", {'random_count': limit}, "每日推荐-权重")
+        self.process_items_request(flow, "http://192.168.2.40:5555/weight", {'random_count': limit}, f"拦截到【每日推荐】请求，Limit: {limit} >>> 按曲目风格权重分配")
 
     def process_items_request_top(self, flow: http.HTTPFlow, limit: int):
-        self.process_items_request(flow, "http://192.168.2.40:5555/top", {'top_count': limit}, "最常播放")
+        self.process_items_request(flow, "http://192.168.2.40:5555/top", {'top_count': limit}, f"拦截到【最常播放】请求，Limit: {limit} >>> 最常播放")
 
     def process_genres_request(self, flow: http.HTTPFlow):
         """
@@ -157,10 +186,10 @@ class EmbyProxyHandler:
 
             # 设置自定义响应
             flow.response = self.create_response(response.json())
-            logger.info("自定义 ¶ 风格类型⁋ 成功")
+            logger.info(f"拦截到 ¶ 风格类型⁋ 请求 >>> 自定义 ¶ 风格类型⁋ 成功")
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"请求 ¶ 风格类型⁋ 数据失败: {e}")
+            logger.error(f"拦截到 ¶ 风格类型⁋ 请求 >>> 请求 ¶ 风格类型⁋ 数据失败: {e}")
 
     def process_id_replacement(self, flow: http.HTTPFlow, url_path: str):
         """
@@ -171,9 +200,9 @@ class EmbyProxyHandler:
             new_id = self.get_new_id_from_database(original_id)
             if new_id:
                 flow.request.url = flow.request.pretty_url.replace(original_id, new_id)
-                logger.info(f"专辑 {original_id} 封面已替换为 {new_id}")
+                logger.info(f"拦截到 ◩ 封面请求◪ >>> 专辑 {original_id} 封面已替换为 {new_id}")
             else:
-                logger.warning(f"未能从数据库中找到对应的替换 ID，保持原始 ID {original_id} 不变")
+                logger.warning(f"拦截到 ◩ 封面请求◪ >>> 未能从数据库中找到对应的替换 ID，保持原始 ID {original_id} 不变")
 
         except Exception as e:
             logger.error(f"处理 ID 替换时发生错误: {e}", exc_info=True)
