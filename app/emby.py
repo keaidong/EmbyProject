@@ -4,6 +4,8 @@ import psycopg2
 from datetime import datetime
 from config.settings import EMBY_SERVER_URL, DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, EMBY_API_KEY
 from config.log_config import get_logger
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 logger = get_logger("app.emby", "emby.log")
 
@@ -65,6 +67,19 @@ class Emby:
             logger.error(f"数据库连接失败: {e}")
             raise
 
+    def _get_session_with_retries(self):
+        """创建带有重试机制的会话"""
+        session = requests.Session()
+        retries = Retry(
+            total=5,  # 重试次数
+            backoff_factor=1,  # 重试间隔时间的增长因子
+            status_forcelist=[500, 502, 503, 504],  # 针对这些状态码进行重试
+        )
+        adapter = HTTPAdapter(max_retries=retries)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        return session
+
     def Get_Tracks(self):
         """获取所有歌曲列表"""
         url = f"{self.host}/Users/{self._get_user_id()}/Items"
@@ -92,7 +107,8 @@ class Emby:
         """获取单个歌曲信息"""
         url = f"{self.host}/Users/{self._get_user_id()}/Items/{track_id}"
         try:
-            response = requests.get(url, headers=self._get_headers(), timeout=10)
+            session = self._get_session_with_retries()
+            response = session.get(url, headers=self._get_headers(), timeout=10)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
@@ -130,10 +146,10 @@ class Emby:
         headers = self._get_headers()
         params = {"DeviceId": "sNmpJjgsnsL9O79Cv5iA2IwM"}
         try:
-            response = requests.get(url, headers=headers, params=params, timeout=10)
+            session = self._get_session_with_retries()
+            response = session.get(url, headers=headers, params=params, timeout=10)
             response.raise_for_status()
             play_state_data = response.json()
-            # logger.info("成功获取会话信息")
             return play_state_data
         except requests.exceptions.RequestException as e:
             logger.error(f"获取会话信息失败: {e}")

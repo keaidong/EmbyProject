@@ -5,13 +5,14 @@ import redis  # 引入 Redis 客户端库
 import pickle
 from flask import Flask, request, jsonify
 from config.log_config import get_logger
+import logging
 from config.settings import REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_CACHE_DURATION_TRACKS
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 import atexit
 
 # 创建独立的日志记录器
-logger = get_logger("app.api", "api.log")
+logger = get_logger("app.api", "api.log", log_level=logging.INFO)
 
 app_api = Flask(__name__)
 
@@ -31,66 +32,78 @@ class TrackFilter:
             return
 
         self.track_list = []
-        self.track_info = {}
+        self.track_detail = {}
         self.play_process_results = None
 
     def filter_tracks(self):
         try:
-            cache_keys = ["track_list", "track_info"]
+            cache_keys = ["track_list", "track_detail"]
             cached_data = redis_client.mget(cache_keys)
 
             if cached_data[0] is not None and cached_data[1] is not None:
                 self.track_list = pickle.loads(cached_data[0])
-                self.track_info = pickle.loads(cached_data[1])
-                logger.debug(f"读取到的 track_list 长度: {len(self.track_list)}，track_info 长度: {len(self.track_info)}")
-            # 如果缓存未命中，从 Emby 获取数据
+                self.track_detail = pickle.loads(cached_data[1])
+                logger.info(f"从 Redis 加载曲目数据，track_list 长度: {len(self.track_list.get('Items', []))} || track_detail 长度: {len(self.track_detail)}")
+
             else:
+                logger.warning("Redis 缓存未命中，重新从 Emby 获取数据")
                 self.track_list = self.client_emby.Get_Tracks()
-                if self.track_list is None:
-                    logger.error("未能从 Emby 获取曲目数据")
+                if not self.track_list or not self.track_list.get('Items'):
+                    logger.error("从 Emby 获取的曲目数据为空")
                     return []
 
                 track_list_pickled = pickle.dumps(self.track_list)
                 redis_client.setex(cache_keys[0], REDIS_CACHE_DURATION_TRACKS, track_list_pickled)
 
-                self.track_info = {}
+                self.track_detail = {}
                 for track in self.track_list.get('Items', []):
                     track_id = track.get('Id')
                     if track_id:
                         track_details = self.client_emby.Get_Track_info(track_id)
                         if track_details:
-                            self.track_info[track_id] = track_details
+                            self.track_detail[track_id] = track_details
                         else:
                             logger.warning(f"曲目 {track_id} 的详细信息未能获取到")
                     else:
                         logger.warning(f"曲目没有有效的 ID: {track}")
 
-                track_info_pickled = pickle.dumps(self.track_info)
-                redis_client.setex(cache_keys[1], REDIS_CACHE_DURATION_TRACKS, track_info_pickled)
+                track_detail_pickled = pickle.dumps(self.track_detail)
+                redis_client.setex(cache_keys[1], REDIS_CACHE_DURATION_TRACKS, track_detail_pickled)
 
             filtered_tracks = []
             for track in self.track_list.get('Items', []):
                 if track.get('UserData', {}).get('IsFavorite', False):
+                    logger.debug(f"曲目 {track['Id']} 被过滤: 收藏曲目")
                     continue
 
                 if track.get('UserData', {}).get('Played', False):
+                    logger.debug(f"曲目 {track['Id']} 被过滤: 已播放")
                     continue
-                
+
                 play_process_results = self._get_play_process()
                 play_process_results_ids_1 = [result["id"] for result in play_process_results]
                 play_process_results_ids_2 = [result["id"] for result in play_process_results if result["play_process"] < '50%']
 
                 track_id = track['Id']
+                if track_id not in self.track_detail:
+                    logger.warning(f"曲目 {track_id} 的详细信息缺失，跳过该曲目")
+                    continue
                 if track_id in play_process_results_ids_2:
+                    logger.debug(f"曲目 {track_id} 被过滤: 播放进度超过 50%")
                     continue
                 if track_id in play_process_results_ids_1:
                     if random.random() > 0.2:
+                        logger.debug(f"曲目 {track_id} 被过滤: 随机概率过滤")
                         continue
 
                 filtered_tracks.append({
                     "Id": track_id,
-                    "Genres": self.track_info[track_id].get("Genres", [])
+                    "Genres": self.track_detail[track_id].get("Genres", [])
                 })
+
+            if not filtered_tracks:
+                logger.warning("筛选后没有可用的曲目，返回空列表")
+                return []
 
             return filtered_tracks
         except Exception as e:
@@ -106,6 +119,10 @@ class TrackFilter:
                 result = cursor.fetchall()
                 self.play_process_results = [{"id": row[0], "play_process": row[1]} for row in result] if result else []
 
+        if not self.play_process_results:
+            logger.error("从数据库获取的播放进度数据为空")
+            return []
+
         return self.play_process_results
 
     def get_top_tracks_by_playcount(self, top_count=20):
@@ -113,18 +130,18 @@ class TrackFilter:
         根据 PlayCount 降序排列曲目，并获取前 top_count 首曲目
         """
         try:
-            # 确保 track_list 和 track_info 已加载
-            if not self.track_list or not self.track_info:
+            # 确保 track_list 和 track_detail 已加载
+            if not self.track_list or not self.track_detail:
                 self.filter_tracks()
 
             # 提取曲目并排序
             tracks_with_playcount = [
                 {
                     "Id": track["Id"],
-                    "PlayCount": self.track_info[track["Id"]].get("UserData", {}).get("PlayCount", 0)
+                    "PlayCount": self.track_detail[track["Id"]].get("UserData", {}).get("PlayCount", 0)
                 }
                 for track in self.track_list.get("Items", [])
-                if track["Id"] in self.track_info
+                if track["Id"] in self.track_detail
             ]
 
             # 按 PlayCount 降序排列
@@ -366,15 +383,15 @@ def generate_responses_top_playcount():
 
 def update_cache():
     """
-    定时更新 Emby 缓存
+    更新 Emby 缓存
     """
     try:
-        logger.info("开始定时更新 Emby 缓存")
+        logger.info("开始更新 Emby 缓存")
         track_filter = TrackFilter()
         track_filter.filter_tracks()  # 调用现有的缓存更新逻辑
         logger.info("Emby 缓存更新完成")
     except Exception as e:
-        logger.error(f"定时更新缓存时发生错误：{e}")
+        logger.error(f"更新缓存时发生错误：{e}")
 
 # 初始化定时任务
 scheduler = BackgroundScheduler()
