@@ -55,7 +55,9 @@ def get_logger(module_name, log_file_name, log_level=logging.INFO):
 
     # 创建文件处理器
     file_handler = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding='utf-8')
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    #formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(funcName)s - Line %(lineno)d - %(message)s')
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s || %(name)s - %(funcName)s - Line %(lineno)d')
+
     file_handler.setFormatter(formatter)
 
     # 创建通知处理器
