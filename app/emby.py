@@ -6,6 +6,7 @@ from config.settings import EMBY_SERVER_URL, DB_NAME, DB_USER, DB_PASSWORD, DB_H
 from config.log_config import get_logger
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from flask import g
 
 logger = get_logger("app.emby", "emby.log")
 
@@ -32,10 +33,10 @@ class Emby:
             response.raise_for_status()
             self.UserId = response.json().get("User", {}).get("Id")
             self.AccessToken = response.json().get("AccessToken")
-            logger.info("登录成功")
+            logger.debug(f"登录成功，UserId: {self.UserId}")
             return self
         except requests.exceptions.RequestException as e:
-            logger.error(f"登录失败: {e}")
+            logger.error(f"登录失败: {e}", exc_info=True)
             return None
 
     def _get_headers(self):
@@ -61,10 +62,10 @@ class Emby:
                 port=DB_PORT,
                 options="-c client_encoding=UTF8"
             )
-            logger.info("成功连接到数据库")
+            logger.debug("成功连接到数据库")
             return conn
         except psycopg2.Error as e:
-            logger.error(f"数据库连接失败: {e}")
+            logger.error(f"数据库连接失败: {e}", exc_info=True)
             raise
 
     def _get_session_with_retries(self):
@@ -97,7 +98,6 @@ class Emby:
             response = requests.get(url, headers=self._get_headers(), params=params, timeout=10)
             response.raise_for_status()
             tracks_data = response.json()
-            logger.info(f"获取歌曲成功，共 {tracks_data.get('TotalRecordCount', 0)} 首")
             return tracks_data
         except requests.exceptions.RequestException as e:
             logger.error(f"获取歌曲失败: {e}")
