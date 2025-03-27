@@ -10,14 +10,26 @@ from config.settings import REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_CACHE_DURATI
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 import atexit
+from flask import g
+import uuid
 
 # 创建独立的日志记录器
-logger = get_logger("app.api", "api.log", log_level=logging.INFO)
+logger = get_logger("app.api", "api.log", log_level=logging.DEBUG)
 
 app_api = Flask(__name__)
 
 # 配置 Redis 连接
 redis_client = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=False)
+
+@app_api.before_request
+def before_request():
+    g.trace_id = str(uuid.uuid4())  # 为每个请求生成唯一的 Trace ID
+    logger.info(f"[Trace ID: {g.trace_id}] 处理请求开始")
+
+@app_api.after_request
+def after_request(response):
+    logger.info(f"[Trace ID: {g.trace_id}] 处理请求完成")
+    return response
 
 class TrackFilter:
     def __init__(self):
@@ -43,7 +55,7 @@ class TrackFilter:
             if cached_data[0] is not None and cached_data[1] is not None:
                 self.track_list = pickle.loads(cached_data[0])
                 self.track_detail = pickle.loads(cached_data[1])
-                logger.info(f"从 Redis 加载曲目数据，track_list 长度: {len(self.track_list.get('Items', []))} || track_detail 长度: {len(self.track_detail)}")
+                logger.debug(f"从 Redis 加载曲目数据，track_list 长度: {len(self.track_list.get('Items', []))} || track_detail 长度: {len(self.track_detail)}")
 
             else:
                 logger.warning("Redis 缓存未命中，重新从 Emby 获取数据")
@@ -71,6 +83,12 @@ class TrackFilter:
                 redis_client.setex(cache_keys[1], REDIS_CACHE_DURATION_TRACKS, track_detail_pickled)
 
             filtered_tracks = []
+
+            play_process_results = self._get_play_process()
+            play_process_results_ids_1 = [str(result["id"]) for result in play_process_results]
+            play_process_results_ids_2 = [str(result["id"]) for result in play_process_results if result["play_process"] < '50%']
+            
+            
             for track in self.track_list.get('Items', []):
                 if track.get('UserData', {}).get('IsFavorite', False):
                     logger.debug(f"曲目 {track['Id']} 被过滤: 收藏曲目")
@@ -80,25 +98,20 @@ class TrackFilter:
                     logger.debug(f"曲目 {track['Id']} 被过滤: 已播放")
                     continue
 
-                play_process_results = self._get_play_process()
-                play_process_results_ids_1 = [result["id"] for result in play_process_results]
-                play_process_results_ids_2 = [result["id"] for result in play_process_results if result["play_process"] < '50%']
-
-                track_id = track['Id']
-                if track_id not in self.track_detail:
-                    logger.warning(f"曲目 {track_id} 的详细信息缺失，跳过该曲目")
+                if track['Id'] not in self.track_detail:
+                    logger.warning(f"曲目 {track['Id']} 的详细信息缺失，跳过该曲目")
                     continue
-                if track_id in play_process_results_ids_2:
-                    logger.debug(f"曲目 {track_id} 被过滤: 播放进度超过 50%")
+                if track['Id'] in play_process_results_ids_2:
+                    logger.debug(f"曲目 {track['Id']} 被过滤: 播放进度超过 50%")
                     continue
-                if track_id in play_process_results_ids_1:
+                if track['Id'] in play_process_results_ids_1:
                     if random.random() > 0.2:
-                        logger.debug(f"曲目 {track_id} 被过滤: 随机概率过滤")
+                        logger.debug(f"曲目 {track['Id']} 被过滤: 随机概率过滤")
                         continue
 
                 filtered_tracks.append({
-                    "Id": track_id,
-                    "Genres": self.track_detail[track_id].get("Genres", [])
+                    "Id": track['Id'],
+                    "Genres": self.track_detail[track['Id']].get("Genres", [])
                 })
 
             if not filtered_tracks:
@@ -149,7 +162,7 @@ class TrackFilter:
 
             # 获取前 top_count 首曲目
             top_tracks = sorted_tracks[:top_count]
-            logger.info(f"获取到的前 {top_count} 首曲目")
+            logger.debug(f"获取到的前 {top_count} 首曲目")
             return top_tracks
 
         except Exception as e:
@@ -310,21 +323,22 @@ class GenerateResponses:
 
 @app_api.route('/average', methods=['POST'])
 def generate_responses_average():
-    data = request.get_json()  # 获取 JSON 数据
-    random_count = data.get('random_count', 50)  # 默认值 50
+    data = request.get_json()
+    random_count = data.get('random_count', 50)
 
-    logger.info(f"API 请求: 生成 {random_count} 首曲目 (average 分发)")
-    responses_data = GenerateResponses(random_count, distribution_type="average").generate_responses()
+    logger.info(f"[Trace ID: {g.trace_id}] API 请求: 生成 {random_count} 首曲目 (average 分发)")
     try:
+        responses_data = GenerateResponses(random_count, distribution_type="average").generate_responses()
         if len(responses_data.get('Items')) == random_count:
             return jsonify(responses_data)
         else:
+            logger.warning(f"[Trace ID: {g.trace_id}] 生成播放列表数量不一致")
             return jsonify({
                 "status": "error",
                 "message": f"生成播放列表数量{len(responses_data.get('Items'))}与请求数量{random_count}不一致"
             }), 500
     except Exception as e:
-        logger.error(f"生成播放列表失败: {e}")
+        logger.error(f"[Trace ID: {g.trace_id}] 生成播放列表失败: {e}", exc_info=True)
         return jsonify({
             "status": "error",
             "message": str(e)
@@ -335,9 +349,9 @@ def generate_responses_weight():
     data = request.get_json()  # 获取 JSON 数据
     random_count = data.get('random_count', 50)  # 默认值 50
 
-    logger.info(f"API 请求: 生成 {random_count} 首曲目 (weight 分发)")
-    responses_data = GenerateResponses(random_count, distribution_type="weight").generate_responses()
+    logger.info(f"[Trace ID: {g.trace_id}] API 请求: 生成 {random_count} 首曲目 (weight 分发)")
     try:
+        responses_data = GenerateResponses(random_count, distribution_type="weight").generate_responses()
         if len(responses_data.get('Items')) == random_count:
             return jsonify(responses_data)
         else:
@@ -357,7 +371,7 @@ def generate_responses_top_playcount():
     data = request.get_json()  # 获取 JSON 数据
     top_count = data.get('top_count', 20)  # 默认获取前 20 首曲目
 
-    logger.info(f"API 请求: 获取前 {top_count} 首曲目 (按 PlayCount 排序)")
+    logger.info(f"[Trace ID: {g.trace_id}] API 请求: 获取前 {top_count} 首曲目 (按 PlayCount 排序)")
     try:
         playlist_generator = GenerateEmbyPlaylist()
         top_tracks = playlist_generator.generate_playlist(top_count, distribution_type="top")
@@ -386,10 +400,10 @@ def update_cache():
     更新 Emby 缓存
     """
     try:
-        logger.info("开始更新 Emby 缓存")
+        logger.debug("开始更新 Emby 缓存")
         track_filter = TrackFilter()
         track_filter.filter_tracks()  # 调用现有的缓存更新逻辑
-        logger.info("Emby 缓存更新完成")
+        logger.debug("Emby 缓存更新完成")
     except Exception as e:
         logger.error(f"更新缓存时发生错误：{e}")
 
