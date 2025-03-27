@@ -66,7 +66,7 @@ class Session:
             cur.execute("SELECT 1")
             cur.close()
         except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-            logger.error(f"⚠️ 数据库连接失效，正在尝试重新连接: {e}")
+            logger.warning(f"⚠️ 数据库连接失效，正在尝试重新连接: {e}")
             self.db_conn = self.connect_db()
             if not self.db_conn:
                 logger.error("❌ 数据库重连失败，程序退出")
@@ -123,7 +123,8 @@ class Session:
                         play_process_str,
                     ),
                 )
-                return True
+            logger.info(f"🎵 播放记录插入成功，曲目 ID: {record['id']}")
+            return True
         except Exception as e:
             logger.error(f"❌ 插入播放记录失败: {e}", exc_info=True)
             self.db_conn.rollback()
