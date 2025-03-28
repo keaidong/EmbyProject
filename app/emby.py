@@ -154,3 +154,24 @@ class Emby:
         except requests.exceptions.RequestException as e:
             logger.error(f"获取会话信息失败: {e}")
             return None
+        
+    def get_items_counts(self):
+        """获取所有曲目数量"""
+        url = f"{self.host}/emby/Items/Counts"
+        headers = {
+            'accept': 'application/json',
+        }        
+        params = {
+            'UserId': self._get_user_id(),
+            'api_key': EMBY_API_KEY,
+        }
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=10)
+            response.raise_for_status()
+            SongCount = response.json().get('SongCount',0)
+            if SongCount == 0:
+                logger.warning("获取歌曲数量失败，歌曲数量为0")
+            return SongCount
+        except requests.exceptions.RequestException as e:
+            logger.error(f"获取歌曲数量失败: {e}")
+            return None
