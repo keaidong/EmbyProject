@@ -69,7 +69,7 @@ class EmbyProxyHandler:
                         logger.info(f"拦截到【每日推荐】请求，Limit: {limit}")
                         self.process_items_request_average(flow, limit)
                     elif 'Random' in sort_by and limit == 500:
-                        logger.info(f"拦截到【每日推荐】请求，Limit: {limit}")
+                        logger.info(f"拦截到【随便听听】请求，Limit: {limit}")
                         self.process_items_request_weight(flow, limit)
                     elif 'PlayCount' in sort_by and limit == 20:
                         logger.info(f"拦截到【最常播放】请求，Limit: {limit}")
@@ -154,7 +154,7 @@ class EmbyProxyHandler:
         self.process_items_request(flow, "http://192.168.2.40:5555/average", {'random_count': limit}, f"拦截到【每日推荐】请求，Limit: {limit} >>> 按曲目风格平均分配")
 
     def process_items_request_weight(self, flow: http.HTTPFlow, limit: int):
-        self.process_items_request(flow, "http://192.168.2.40:5555/weight", {'random_count': limit}, f"拦截到【每日推荐】请求，Limit: {limit} >>> 按曲目风格权重分配")
+        self.process_items_request(flow, "http://192.168.2.40:5555/weight", {'random_count': limit}, f"拦截到【随便听听】请求，Limit: {limit} >>> 按曲目风格权重分配")
 
     def process_items_request_top(self, flow: http.HTTPFlow, limit: int):
         self.process_items_request(flow, "http://192.168.2.40:5555/top", {'top_count': limit}, f"拦截到【最常播放】请求，Limit: {limit} >>> 最常播放")

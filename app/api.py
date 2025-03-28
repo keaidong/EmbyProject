@@ -14,7 +14,7 @@ from flask import g
 import uuid
 
 # 创建独立的日志记录器
-logger = get_logger("app.api", "api.log", log_level=logging.DEBUG)
+logger = get_logger("app.api", "api.log", log_level=logging.INFO)
 
 app_api = Flask(__name__)
 
