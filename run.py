@@ -19,7 +19,7 @@ def run_app_lrc():
 def run_session_listener():
     session = Session()
     if session.client_emby and session.db_conn:
-        session.get_session()
+        session.listen_sessions()
 
 def run_mitmproxy():
     """
