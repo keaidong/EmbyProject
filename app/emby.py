@@ -155,6 +155,21 @@ class Emby:
             logger.error(f"获取会话信息失败: {e}")
             return None
         
+    def get_sessions(self):
+        """获取会话信息"""
+        url = f"{self.host}/emby/Sessions"
+        headers = {'accept': 'application/json'}
+        params = {'api_key': EMBY_API_KEY}
+        try:
+            session = self._get_session_with_retries()
+            response = session.get(url, headers=headers, params=params, timeout=10)
+            response.raise_for_status()
+            session_data = response.json()
+            return session_data
+        except requests.exceptions.RequestException as e:
+            logger.error(f"获取会话信息失败: {e}")
+            return None
+                
     def get_items_counts(self):
         """获取所有曲目数量"""
         url = f"{self.host}/emby/Items/Counts"
