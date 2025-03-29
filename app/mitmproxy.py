@@ -84,9 +84,9 @@ class EmbyProxyHandler:
                     pass
                     
             # 处理风格类型请求
-            # elif flow.request.pretty_url.startswith(f"{EMBY_SERVER_URL}/Genres"):
-            #     logger.info("拦截到 ¶ 风格类型⁋ 请求")
-            #     self.process_genres_request(flow)
+            elif flow.request.pretty_url.startswith(f"{EMBY_SERVER_URL}/Genres"):
+                logger.info("拦截到 ¶ 风格类型⁋ 请求")
+                self.process_genres_request(flow)
 
             # 处理封面请求（ID 替换）
             elif url_path.startswith("/Items/") and "Images/Primary" in url_path:
@@ -159,37 +159,37 @@ class EmbyProxyHandler:
     def process_items_request_top(self, flow: http.HTTPFlow, limit: int):
         self.process_items_request(flow, "http://192.168.2.40:5555/top", {'top_count': limit}, f"拦截到【最常播放】请求，Limit: {limit} >>> 最常播放")
 
-    # def process_genres_request(self, flow: http.HTTPFlow):
-    #     """
-    #     处理风格类型请求，并返回自定义响应
-    #     """
-    #     try:
-    #         headers = {'accept': 'application/json'}
-    #         params = {
-    #             'StartIndex': '0',
-    #             'Recursive': 'true',
-    #             'SortOrder': 'Ascending',
-    #             'ParentId': '37197',
-    #             'IncludeItemTypes': 'MusicAlbum',
-    #             'SortBy': 'SortName',
-    #             'UserId': EMBY_USER_ID,
-    #             'api_key': EMBY_API_KEY,
-    #         }
+    def process_genres_request(self, flow: http.HTTPFlow):
+        """
+        处理风格类型请求，并返回自定义响应
+        """
+        try:
+            headers = {'accept': 'application/json'}
+            params = {
+                'StartIndex': '0',
+                'Recursive': 'true',
+                'SortOrder': 'Ascending',
+                'ParentId': '37197',
+                'IncludeItemTypes': 'MusicAlbum',
+                'SortBy': 'SortName',
+                'UserId': EMBY_USER_ID,
+                'api_key': EMBY_API_KEY,
+            }
 
-    #         response = requests.get(
-    #             f"{EMBY_SERVER_URL}/emby/Genres",
-    #             params=params,
-    #             headers=headers,
-    #             timeout=10
-    #         )
-    #         response.raise_for_status()
+            response = requests.get(
+                f"{EMBY_SERVER_URL}/emby/Genres",
+                params=params,
+                headers=headers,
+                timeout=10
+            )
+            response.raise_for_status()
 
-    #         # 设置自定义响应
-    #         flow.response = self.create_response(response.json())
-    #         logger.info(f"拦截到 ¶ 风格类型⁋ 请求 >>> 自定义 ¶ 风格类型⁋ 成功")
+            # 设置自定义响应
+            flow.response = self.create_response(response.json())
+            logger.info(f"拦截到 ¶ 风格类型⁋ 请求 >>> 自定义 ¶ 风格类型⁋ 成功")
 
-    #     except requests.exceptions.RequestException as e:
-    #         logger.error(f"拦截到 ¶ 风格类型⁋ 请求 >>> 请求 ¶ 风格类型⁋ 数据失败: {e}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"拦截到 ¶ 风格类型⁋ 请求 >>> 请求 ¶ 风格类型⁋ 数据失败: {e}")
 
     def process_id_replacement(self, flow: http.HTTPFlow, url_path: str):
         """
