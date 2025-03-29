@@ -296,4 +296,4 @@ class Session:
 if __name__ == "__main__":
     session = Session()
     if session.client_emby and session.db_conn:
-        session.get_session1()
+        session.listen_sessions()
