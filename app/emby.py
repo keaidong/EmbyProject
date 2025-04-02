@@ -103,6 +103,23 @@ class Emby:
             logger.error(f"获取歌曲失败: {e}")
             return []
 
+    def Get_Tracks_Genres(self):
+        """获取所有曲目的流派"""
+        url = f"{self.host}/Users/{self._get_user_id()}/Items"
+        params = {
+            "IncludeItemTypes": "Audio",
+            "Recursive": "true",
+            "Fields": "Genres,MediaSources",
+        }
+        try:
+            response = requests.get(url, headers=self._get_headers(), params=params, timeout=10)
+            response.raise_for_status()
+            tracks_genres_data = response.json()
+            return tracks_genres_data
+        except requests.exceptions.RequestException as e:
+            logger.error(f"获取所有曲目的流派失败: {e}")
+            return []
+
     def Get_Track_info(self, track_id):
         """获取单个歌曲信息"""
         url = f"{self.host}/Users/{self._get_user_id()}/Items/{track_id}"
