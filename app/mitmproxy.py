@@ -165,28 +165,38 @@ class EmbyProxyHandler:
         """
         try:
             headers = {'accept': 'application/json'}
-            params = {
-                'StartIndex': '0',
-                'Recursive': 'true',
-                'SortOrder': 'Ascending',
-                'ParentId': '37197',
-                'IncludeItemTypes': 'MusicAlbum',
-                'SortBy': 'SortName',
-                'UserId': EMBY_USER_ID,
-                'api_key': EMBY_API_KEY,
-            }
+            parent_ids = ['37197', '59057']  # 多个 ParentId
+            combined_items = []  # 用于存储合并的结果
 
-            response = requests.get(
-                f"{EMBY_SERVER_URL}/emby/Genres",
-                params=params,
-                headers=headers,
-                timeout=10
-            )
-            response.raise_for_status()
+            for parent_id in parent_ids:
+                params = {
+                    'StartIndex': '0',
+                    'Recursive': 'true',
+                    'SortOrder': 'Ascending',
+                    'ParentId': parent_id,
+                    'IncludeItemTypes': 'MusicAlbum',
+                    'SortBy': 'SortName',
+                    'UserId': EMBY_USER_ID,
+                    'api_key': EMBY_API_KEY,
+                }
+
+                response = requests.get(
+                    f"{EMBY_SERVER_URL}/emby/Genres",
+                    params=params,
+                    headers=headers,
+                    timeout=10
+                )
+                response.raise_for_status()
+
+                # 合并结果
+                data = response.json()
+                if 'Items' in data:
+                    combined_items.extend(data['Items'])
 
             # 设置自定义响应
-            flow.response = self.create_response(response.json())
-            logger.info(f"拦截到 ¶ 风格类型⁋ 请求 >>> 自定义 ¶ 风格类型⁋ 成功")
+            combined_response = {'Items': combined_items}
+            flow.response = self.create_response(combined_response)
+            logger.info(f"拦截到 ¶ 风格类型⁋ 请求 >>> 自定义 ¶ 风格类型⁋ 成功，合并了 {len(parent_ids)} 个 ParentId 的结果")
 
         except requests.exceptions.RequestException as e:
             logger.error(f"拦截到 ¶ 风格类型⁋ 请求 >>> 请求 ¶ 风格类型⁋ 数据失败: {e}")
