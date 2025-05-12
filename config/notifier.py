@@ -7,8 +7,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Notifier:
-    def __init__(self, bark_key=None):
-        self.bark_key = bark_key or os.getenv("BARK_KEY")
+    def __init__(self, bark_url, bark_key):
+        self.bark_url = os.getenv("BARK_URL")
+        self.bark_key = os.getenv("BARK_KEY")
 
     def send_bark_notification(self, title, content):
         """发送 Bark 通知"""
@@ -16,7 +17,7 @@ class Notifier:
             logging.error("未配置 Bark 的 app_key")
             return False
 
-        url = f"http://192.168.2.40:8080/{self.bark_key}/"
+        url = f"{self.bark_url}/{self.bark_key}/"
         data = {"title": title, "body": content}
         try:
             response = requests.post(url, data=data)
@@ -34,9 +35,9 @@ class Notifier:
 class NotificationHandler(logging.Handler):
     """自定义日志处理器: 捕获 WARNING 和 ERROR 级别日志并发送通知"""
 
-    def __init__(self, send_key=None, bark_key=None):
+    def __init__(self, send_key=None, bark_url=None, bark_key=None):
         super().__init__()
-        self.notifier = Notifier(bark_key=bark_key)
+        self.notifier = Notifier(bark_url=bark_url, bark_key=bark_key)
 
     def emit(self, record):
         try:
