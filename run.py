@@ -26,12 +26,23 @@ def run_mitmproxy():
     启动 mitmdump 作为子进程
     """
     try:
+        # mitmproxy_command = [
+        #     "/vol1/1000/Python/EmbyProject/EmbyProject_venv/bin/mitmdump",
+        #     "--mode", f"reverse:{EMBY_SERVER_URL}",
+        #     "-p", str(MITMPROXY_PORT),
+        #     "-s", MITMPROXY_SCRIPT
+        # ]
         mitmproxy_command = [
-            "mitmdump",
+            "/vol1/1000/Python/EmbyProject/EmbyProject_venv/bin/mitmdump",
             "--mode", f"reverse:{EMBY_SERVER_URL}",
             "-p", str(MITMPROXY_PORT),
-            "-s", MITMPROXY_SCRIPT
+            "-s", MITMPROXY_SCRIPT,
+            "--no-http2",  # 禁用 HTTP/2，避免握手 &多路复用带来的 CPU 开销
+            "--set", "flow_detail=0",  # 关闭详细日志
+            "--set", "console_eventlog_verbosity=error",  # 只打印错误日志
+            "--set", "block_global=false",  # 允许外部设备连接，避免异常导致重启
         ]
+   
         logger.info(f"启动 mitmdump: {' '.join(mitmproxy_command)}")
         subprocess.run(mitmproxy_command, check=True)
     except subprocess.CalledProcessError as e:
