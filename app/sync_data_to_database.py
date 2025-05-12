@@ -55,10 +55,10 @@ class SyncDataToDatabase:
         """加载曲目列表并验证数据"""
         try:
             response = self.client_emby.Get_Tracks()
-            if not response or "Items" not in response:
+            if not response or not isinstance(response, list):
                 raise Exception("无效的API响应")
 
-            self.track_list = response["Items"]
+            self.track_list = response
             if not self.track_list:
                 logger.warning("API返回空曲目列表")
 
