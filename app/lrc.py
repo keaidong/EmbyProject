@@ -11,7 +11,7 @@ logger = get_logger("app.lrc", "lrc.log")
 
 app_lrc = Flask(__name__)
 
-LRC_DIRECTORY = os.environ.get('LRC_DIRECTORY', '/music')
+LRC_DIRECTORY = os.environ.get('LRC_DIRECTORY', '/vol1/1000/音乐')
 
 
 def search_song(keyword):
