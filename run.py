@@ -3,15 +3,15 @@ import subprocess
 from multiprocessing import Process
 from config.log_config import get_logger
 from app.session import Session
-from app.api import app_api
+# from app.api import app_api
 from app.lrc import app_lrc
 from config.settings import EMBY_SERVER_URL, FLASK_API_HOST, FLASK_API_PORT, FLASK_LRC_PORT, FLASK_DEBUG, MITMPROXY_SCRIPT, MITMPROXY_PORT
 
 # 创建独立的日志记录器
 logger = get_logger("run", "run.log")
 
-def run_app_api():
-    app_api.run(host=FLASK_API_HOST, port=FLASK_API_PORT, debug=FLASK_DEBUG)
+# def run_app_api():
+#     app_api.run(host=FLASK_API_HOST, port=FLASK_API_PORT, debug=FLASK_DEBUG)
 
 def run_app_lrc():
     app_lrc.run(host=FLASK_API_HOST, port=FLASK_LRC_PORT, debug=FLASK_DEBUG)
@@ -59,19 +59,19 @@ if __name__ == "__main__":
         session_process.start()
 
         # 启动 Flask API 服务进程
-        api_process = Process(target=run_app_api)
+        # api_process = Process(target=run_app_api)
         lrc_process = Process(target=run_app_lrc)
 
         # 启动 mitmdump 进程
         mitmproxy_process = Process(target=run_mitmproxy)
         mitmproxy_process.start()
 
-        api_process.start()
+        # api_process.start()
         lrc_process.start()
 
         # 等待所有进程完成
         session_process.join()
-        api_process.join()
+        # api_process.join()
         lrc_process.join()
         mitmproxy_process.join()
 
