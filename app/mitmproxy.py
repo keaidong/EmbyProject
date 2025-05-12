@@ -16,6 +16,13 @@ from config.log_config import get_logger
 from config.settings import EMBY_SERVER_URL, EMBY_USER_ID, EMBY_API_KEY
 import logging
 
+# 新增：导入 emby_playlist_utils
+from app.emby_playlist_utils import (
+    generate_responses_average,
+    generate_responses_weight,
+    generate_responses_top_playcount
+)
+
 # 创建独立的日志记录器
 logger = get_logger("app.mitmproxy", "mitmproxy.log", log_level=logging.INFO)
 
@@ -56,7 +63,7 @@ class EmbyProxyHandler:
             # Music 请求，包含 Audio 类型并带排序参数
             types = query_dict.get("IncludeItemTypes", [])
             sort = query_dict.get("SortBy", [])
-            limit = self._get_query_param(query_dict, "Limit", default=0)
+            limit = self._get_limit_from_query(query_dict)
             if "Audio" in types and (
                 ("Random" in sort and limit in (50, 100, 500)) or
                 ("PlayCount" in sort and limit == 20) or
@@ -167,31 +174,37 @@ class EmbyProxyHandler:
         except Exception as e:
             logger.error(f"未知错误: {e}, 请求 URL: {flow.request.pretty_url}", exc_info=True)
 
-    def process_items_request(self, flow: http.HTTPFlow, url: str, data: dict, log_message: str):
+    def process_items_request(self, flow: http.HTTPFlow, data: dict, mode: str, log_message: str):
+        """
+        直接调用 emby_playlist_utils 生成曲目数据并返回
+        """
         try:
-            headers = {'Content-Type': 'application/json'}
-            response = requests.post(url, json=data, headers=headers, timeout=10)
-
-            if response.status_code == 200:
-                track_data = response.json()
-                if not track_data or 'Items' not in track_data or len(track_data['Items']) == 0:
-                    logger.warning(f"API返回的曲目数据无效或为空: 【{log_message}】")
-                    return
-                flow.response = self.create_response(track_data)
-                logger.info(f"{log_message}")
+            if mode == "average":
+                track_data = generate_responses_average(data['random_count'])
+            elif mode == "weight":
+                track_data = generate_responses_weight(data['random_count'])
+            elif mode == "top":
+                track_data = generate_responses_top_playcount(data['top_count'])
             else:
-                logger.error(f"API 请求失败，状态码: {response.status_code}, {log_message}")
+                logger.error(f"未知的分发模式: {mode}")
+                return
+
+            if not track_data or 'Items' not in track_data or len(track_data['Items']) == 0:
+                logger.warning(f"生成的曲目数据无效或为空: 【{log_message}】")
+                return
+            flow.response = self.create_response(track_data)
+            logger.info(f"{log_message}")
         except Exception as e:
-            logger.error(f"调用 API 时发生错误: {e}, {log_message}", exc_info=True)
+            logger.error(f"调用 emby_playlist_utils 时发生错误: {e}, {log_message}", exc_info=True)
 
     def process_items_request_average(self, flow: http.HTTPFlow, limit: int):
-        self.process_items_request(flow, "http://192.168.2.40:5555/average", {'random_count': limit}, f"拦截到【每日推荐】请求，Limit: {limit} >>> 按曲目风格平均分配")
+        self.process_items_request(flow, {'random_count': limit}, "average", f"拦截到【每日推荐】请求，Limit: {limit} >>> 按曲目风格平均分配")
 
     def process_items_request_weight(self, flow: http.HTTPFlow, limit: int):
-        self.process_items_request(flow, "http://192.168.2.40:5555/weight", {'random_count': limit}, f"拦截到【随便听听】请求，Limit: {limit} >>> 按曲目风格权重分配")
+        self.process_items_request(flow, {'random_count': limit}, "weight", f"拦截到【随便听听】请求，Limit: {limit} >>> 按曲目风格权重分配")
 
     def process_items_request_top(self, flow: http.HTTPFlow, limit: int):
-        self.process_items_request(flow, "http://192.168.2.40:5555/top", {'top_count': limit}, f"拦截到【最常播放】请求，Limit: {limit} >>> 最常播放")
+        self.process_items_request(flow, {'top_count': limit}, "top", f"拦截到【最常播放】请求，Limit: {limit} >>> 最常播放")
 
     def process_genres_request(self, flow: http.HTTPFlow):
         """
