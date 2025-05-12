@@ -81,27 +81,37 @@ class Emby:
         session.mount("https://", adapter)
         return session
 
-    def Get_Tracks(self):
-        """获取所有歌曲列表"""
+    def Get_Tracks(self, limit=100):
+        """分页获取所有歌曲列表"""
         url = f"{self.host}/Users/{self._get_user_id()}/Items"
-        params = {
-            "SortBy": "Random",
-            "SortOrder": "Ascending",
-            "IncludeItemTypes": "Audio",
-            "Recursive": "true",
-            "Fields": "SortName,MediaSources,AudioInfo,DateCreated,ProductionYear",
-            "ImageTypeLimit": "1",
-            "EnableImageTypes": "Backdrop",
-            "StartIndex": "0",
-        }
-        try:
-            response = requests.get(url, headers=self._get_headers(), params=params, timeout=10)
-            response.raise_for_status()
-            tracks_data = response.json()
-            return tracks_data
-        except requests.exceptions.RequestException as e:
-            logger.error(f"获取歌曲失败: {e}")
-            return []
+        start_index = 0
+        all_tracks = []
+
+        while True:
+            params = {
+                "SortBy": "Random",
+                "SortOrder": "Ascending",
+                "IncludeItemTypes": "Audio",
+                "Recursive": "true",
+                "Fields": "SortName,MediaSources,AudioInfo,DateCreated,ProductionYear",
+                "ImageTypeLimit": "1",
+                "EnableImageTypes": "Backdrop",
+                "StartIndex": start_index,
+                "Limit": limit,
+            }
+            try:
+                response = requests.get(url, headers=self._get_headers(), params=params, timeout=10)
+                response.raise_for_status()
+                tracks_data = response.json().get("Items", [])
+                if not tracks_data:
+                    break
+                all_tracks.extend(tracks_data)
+                start_index += limit
+            except requests.exceptions.RequestException as e:
+                logger.error(f"获取歌曲失败: {e}")
+                break
+
+        return all_tracks
 
     def Get_Tracks_Genres(self):
         """获取所有曲目的流派"""
