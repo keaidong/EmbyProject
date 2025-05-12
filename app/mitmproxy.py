@@ -14,9 +14,10 @@ from urllib.parse import urlparse, parse_qs
 import emby
 from config.log_config import get_logger
 from config.settings import EMBY_SERVER_URL, EMBY_USER_ID, EMBY_API_KEY
+import logging
 
 # 创建独立的日志记录器
-logger = get_logger("app.mitmproxy", "mitmproxy.log")
+logger = get_logger("app.mitmproxy", "mitmproxy.log", log_level=logging.INFO)
 
 # 检查配置项是否正确加载
 if not EMBY_SERVER_URL or not EMBY_USER_ID or not EMBY_API_KEY:
@@ -48,16 +49,49 @@ class EmbyProxyHandler:
             logger.warning(f"无效的 Limit 参数值: {limit_str}")
             return None
 
+    # ✅ 判断是否劫持请求
+    def _should_intercept(self, path: str, method: str, query_dict: dict) -> bool:
+        # 只拦截满足以下条件的请求，其余全部放行
+        if path.startswith(f"/Users/{EMBY_USER_ID}/Items"):
+            # Music 请求，包含 Audio 类型并带排序参数
+            types = query_dict.get("IncludeItemTypes", [])
+            sort = query_dict.get("SortBy", [])
+            limit = self._get_query_param(query_dict, "Limit", default=0)
+            if "Audio" in types and (
+                ("Random" in sort and limit in (50, 100, 500)) or
+                ("PlayCount" in sort and limit == 20) or
+                ("DatePlayed" in sort and limit == 20)
+            ):
+                return True
+        elif path.startswith("/Genres"):
+            return True
+        elif path.startswith("/Items/") and "Images/Primary" in path:
+            return query_dict.get("tag", [None])[0] == "null"
+        elif method == "POST" and path.endswith("/Sessions/Playing"):
+            return True
+        elif method == "POST" and path.endswith("/Sessions/Playing/Stopped"):
+            return True
+
+        # 默认放行
+        return False
+
     def handle_emby_request(self, flow: http.HTTPFlow):
         """
         根据请求 URL 调用对应的处理逻辑
         """
-        try:
-            url_path = urlparse(flow.request.pretty_url).path
-            query_params = urlparse(flow.request.pretty_url).query
-            query_dict = parse_qs(query_params)
-            limit = self._get_limit_from_query(query_dict)
 
+        url_path = urlparse(flow.request.pretty_url).path
+        query_params = urlparse(flow.request.pretty_url).query
+        query_dict = parse_qs(query_params)
+        limit = self._get_limit_from_query(query_dict)
+        method = flow.request.method
+
+        # ✅ 新增劫持判断逻辑
+        if not self._should_intercept(url_path, method, query_dict):
+            logger.debug(f"不拦截 Emby 请求: {method} {url_path}")
+            return  # 直接走 Emby，不做处理
+        
+        try:
             # 处理曲目请求
             if flow.request.pretty_url.startswith(f"{EMBY_SERVER_URL}/Users/{EMBY_USER_ID}/Items"):
                 include_item_types = query_dict.get('IncludeItemTypes', [])
@@ -165,7 +199,7 @@ class EmbyProxyHandler:
         """
         try:
             headers = {'accept': 'application/json'}
-            parent_ids = ['37197', '59057']  # 多个 ParentId
+            parent_ids = ['15882']  # 多个 ParentId
             combined_items = []  # 用于存储合并的结果
 
             for parent_id in parent_ids:
