@@ -65,7 +65,7 @@ class EmbyProxyHandler:
             sort = query_dict.get("SortBy", [])
             limit = self._get_limit_from_query(query_dict)
             if "Audio" in types and (
-                ("Random" in sort and limit in (50, 100, 500)) or
+                ("Random" in sort and limit in (50, 100, 150, 200, 500)) or
                 ("PlayCount" in sort and limit == 20) or
                 ("DatePlayed" in sort and limit == 20)
             ):
@@ -106,7 +106,7 @@ class EmbyProxyHandler:
 
                 # 曲目类请求
                 if 'Audio' in include_item_types:
-                    if 'Random' in sort_by and limit in [50, 100]:
+                    if 'Random' in sort_by and limit in [50, 100, 150, 200]:
                         logger.info(f"拦截到【每日推荐】请求，Limit: {limit}")
                         self.process_items_request_average(flow, limit)
                     elif 'Random' in sort_by and limit == 500:
